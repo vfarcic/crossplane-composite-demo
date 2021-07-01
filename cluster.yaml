@@ -1,0 +1,16 @@
+apiVersion: devopstoolkitseries.com/v1alpha1
+kind: CompositeKubernetesCluster
+metadata:
+  name: team-a
+  labels:
+    cluster-owner: vfarcic
+spec:
+  compositionRef:
+    name: cluster-azure
+  parameters:
+    nodeSize: small
+    # version: "1.21.1"
+    minNodeCount: 2
+  writeConnectionSecretToRef:
+    namespace: team-a
+    name: cluster

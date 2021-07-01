@@ -1,0 +1,16 @@
+apiVersion: devopstoolkitseries.com/v1alpha1
+kind: CompositeKubernetesCluster
+metadata:
+  name: team-a
+  labels:
+    cluster-owner: vfarcic
+spec:
+  compositionRef:
+    name: cluster-google
+  parameters:
+    nodeSize: small
+    # version: "1.20"
+    # minNodeCount: 2
+  writeConnectionSecretToRef:
+    namespace: team-a
+    name: cluster

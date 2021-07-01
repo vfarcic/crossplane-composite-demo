@@ -1,0 +1,240 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: cluster-aws
+  labels:
+    provider: aws
+    cluster: eks
+spec:
+  compositeTypeRef:
+    apiVersion: devopstoolkitseries.com/v1alpha1
+    kind: CompositeKubernetesCluster
+  patchSets:
+  - name: metadata
+    patches:
+    - fromFieldPath: metadata.labels
+  resources:
+  - name: iamrole-controlplane
+    base:
+      apiVersion: identity.aws.crossplane.io/v1beta1
+      kind: IAMRole
+      metadata:
+        labels:
+          role: controlplane
+      spec:
+        forProvider:
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                  {
+                      "Effect": "Allow",
+                      "Principal": {
+                          "Service": [
+                              "eks.amazonaws.com"
+                          ]
+                      },
+                      "Action": [
+                          "sts:AssumeRole"
+                      ]
+                  }
+              ]
+            }
+  # - name: iampa-eks
+  #   base:
+  #     apiVersion: identity.aws.crossplane.io/v1beta1
+  #     kind: IAMRolePolicyAttachment
+  #     spec:
+  #       forProvider:
+  #         policyArn: arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+  #         roleNameSelector:
+  #           matchControllerRef: true
+  #           matchLabels:
+  #             role: controlplane
+  # - name: iam-nodegroup
+  #   base:
+  #     apiVersion: identity.aws.crossplane.io/v1beta1
+  #     kind: IAMRole
+  #     metadata:
+  #       labels:
+  #         role: nodegroup
+  #     spec:
+  #       forProvider:
+  #         assumeRolePolicyDocument: |
+  #           {
+  #             "Version": "2012-10-17",
+  #             "Statement": [
+  #                 {
+  #                     "Effect": "Allow",
+  #                     "Principal": {
+  #                         "Service": [
+  #                             "ec2.amazonaws.com"
+  #                         ]
+  #                     },
+  #                     "Action": [
+  #                         "sts:AssumeRole"
+  #                     ]
+  #                 }
+  #             ]
+  #           }
+  # - name: iampa-workernode
+  #   base:
+  #     apiVersion: identity.aws.crossplane.io/v1beta1
+  #     kind: IAMRolePolicyAttachment
+  #     spec:
+  #       forProvider:
+  #         policyArn: arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+  #         roleNameSelector:
+  #           matchControllerRef: true
+  #           matchLabels:
+  #             role: nodegroup
+  # - name: iampa-cni
+  #   base:
+  #     apiVersion: identity.aws.crossplane.io/v1beta1
+  #     kind: IAMRolePolicyAttachment
+  #     spec:
+  #       forProvider:
+  #         policyArn: arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+  #         roleNameSelector:
+  #           matchControllerRef: true
+  #           matchLabels:
+  #             role: nodegroup
+  # - name: iampa-registry
+  #   base:
+  #     apiVersion: identity.aws.crossplane.io/v1beta1
+  #     kind: IAMRolePolicyAttachment
+  #     spec:
+  #       forProvider:
+  #         policyArn: arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+  #         roleNameSelector:
+  #           matchControllerRef: true
+  #           matchLabels:
+  #             role: nodegroup
+
+  
+  # - name: gkecluster
+  #   base:
+  #     apiVersion: container.gcp.crossplane.io/v1beta1
+  #     kind: GKECluster
+  #     spec:
+  #       forProvider:
+  #         location: us-east1
+  #         initialClusterVersion: latest
+  #       writeConnectionSecretToRef:
+  #         namespace: crossplane-system
+  #   patches:
+  #   - type: PatchSet
+  #     patchSetName: metadata
+  #   - fromFieldPath: "metadata.uid"
+  #     toFieldPath: "spec.writeConnectionSecretToRef.name"
+  #     transforms:
+  #     - type: string
+  #       string:
+  #         fmt: "%s-gkecluster"
+  #   - fromFieldPath: spec.writeConnectionSecretToRef.namespace
+  #     toFieldPath: spec.writeConnectionSecretToRef.namespace
+  #   - fromFieldPath: "spec.parameters.version"
+  #     toFieldPath: "spec.forProvider.initialClusterVersion"
+  #   - type: ToCompositeFieldPath
+  #     fromFieldPath: "status.atProvider.status"
+  #     toFieldPath: "status.controlPlaneStatus"
+  #   connectionDetails:
+  #   - fromConnectionSecretKey: kubeconfig
+  #   readinessChecks:
+  #   - type: MatchString
+  #     fieldPath: "status.atProvider.status"
+  #     matchString: "RUNNING"
+  # - name: nodepool
+  #   base:
+  #     apiVersion: container.gcp.crossplane.io/v1alpha1
+  #     kind: NodePool
+  #     spec:
+  #       forProvider:
+  #         locations:
+  #         - us-east1-b
+  #         - us-east1-c
+  #         - us-east1-d
+  #         initialNodeCount: 1
+  #         clusterSelector:
+  #           matchControllerRef: true
+  #         config:
+  #           preemptible: true
+  #           oauthScopes:
+  #           - https://www.googleapis.com/auth/cloud-platform
+  #         autoscaling:
+  #           enabled: true
+  #           maxNodeCount: 3
+  #         management:
+  #           autoRepair: true
+  #           autoUpgrade: false
+  #   patches:
+  #   - type: PatchSet
+  #     patchSetName: metadata
+  #   - fromFieldPath: spec.writeConnectionSecretToRef.namespace
+  #     toFieldPath: spec.credentials.secretRef.namespace
+  #   - fromFieldPath: "spec.parameters.minNodeCount"
+  #     toFieldPath: "spec.forProvider.initialNodeCount"
+  #   - fromFieldPath: "spec.parameters.minNodeCount"
+  #     toFieldPath: "spec.forProvider.autoscaling.minNodeCount"
+  #   - fromFieldPath: "spec.parameters.nodeSize"
+  #     toFieldPath: "spec.forProvider.config.machineType"
+  #     transforms:
+  #     - type: map
+  #       map:
+  #         small: e2-standard-2
+  #         medium: e2-standard-4
+  #         large: e2-standard-16
+  #   - type: ToCompositeFieldPath
+  #     fromFieldPath: "status.atProvider.status"
+  #     toFieldPath: "status.nodePoolStatus"
+  #   readinessChecks:
+  #   - type: MatchString
+  #     fieldPath: "status.atProvider.status"
+  #     matchString: "RUNNING"
+  # - name: helm
+  #   base:
+  #     apiVersion: helm.crossplane.io/v1beta1
+  #     kind: ProviderConfig
+  #     spec:
+  #       credentials:
+  #         source: Secret
+  #         secretRef:
+  #           key: kubeconfig
+  #   patches:
+  #   - fromFieldPath: spec.id
+  #     toFieldPath: metadata.name
+  #   - fromFieldPath: spec.writeConnectionSecretToRef.namespace
+  #     toFieldPath: spec.credentials.secretRef.namespace
+  #   - fromFieldPath: "metadata.uid"
+  #     toFieldPath: spec.credentials.secretRef.name
+  #     transforms:
+  #       - type: string
+  #         string:
+  #           fmt: "%s-gkecluster"
+  #   readinessChecks:
+  #   - type: None
+  # - name: ingress
+  #   base:
+  #     apiVersion: helm.crossplane.io/v1beta1
+  #     kind: Release
+  #     spec:
+  #       forProvider:
+  #         namespace: ingress-ngin
+  #         chart:
+  #           name: ingress-nginx
+  #           repository: https://kubernetes.github.io/ingress-nginx
+  #           version: "3.34.0"
+  #       providerConfigRef:
+  #         name: team-a-r2msd
+  #   patches:
+  #   # TODO: Figure it out.
+  #   - fromFieldPath: WHAT_GOES_HERE
+  #     toFieldPath: spec.providerConfigRef.name
+  #   - fromFieldPath: spec.labels
+  #     toFieldPath: metadata.labels
+  #   - fromFieldPath: metadata.annotations
+  #     toFieldPath: metadata.annotations
+  #   - type: ToCompositeFieldPath
+  #     fromFieldPath: "status.atProvider.status"
+  #     toFieldPath: "status.ingressStatus"
+  # writeConnectionSecretsToNamespace: crossplane-system
