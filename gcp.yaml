@@ -97,26 +97,26 @@ spec:
     - type: MatchString
       fieldPath: status.atProvider.status
       matchString: RUNNING
-  - name: helm
-    base:
-      apiVersion: helm.crossplane.io/v1beta1
-      kind: ProviderConfig
-      spec:
-        credentials:
-          source: Secret
-          secretRef:
-            key: kubeconfig
-    patches:
-    - fromFieldPath: metadata.uid
-      toFieldPath: metadata.name
-    - fromFieldPath: spec.writeConnectionSecretToRef.namespace
-      toFieldPath: spec.credentials.secretRef.namespace
-    - fromFieldPath: "metadata.uid"
-      toFieldPath: spec.credentials.secretRef.name
-      transforms:
-        - type: string
-          string:
-            fmt: "%s-gkecluster"
-    readinessChecks:
-    - type: None
+  # - name: helm
+  #   base:
+  #     apiVersion: helm.crossplane.io/v1beta1
+  #     kind: ProviderConfig
+  #     spec:
+  #       credentials:
+  #         source: Secret
+  #         secretRef:
+  #           key: kubeconfig
+  #   patches:
+  #   - fromFieldPath: metadata.uid
+  #     toFieldPath: metadata.name
+  #   - fromFieldPath: spec.writeConnectionSecretToRef.namespace
+  #     toFieldPath: spec.credentials.secretRef.namespace
+  #   - fromFieldPath: "metadata.uid"
+  #     toFieldPath: spec.credentials.secretRef.name
+  #     transforms:
+  #       - type: string
+  #         string:
+  #           fmt: "%s-gkecluster"
+  #   readinessChecks:
+  #   - type: None
   writeConnectionSecretsToNamespace: crossplane-system
