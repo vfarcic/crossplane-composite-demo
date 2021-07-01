@@ -21,28 +21,83 @@ spec:
       spec:
         forProvider:
           region: us-east-1
+          version: "1.20"
           roleArnSelector:
             matchControllerRef: true
             matchLabels:
               role: controlplane
-          version: "1.20"
+          resourcesVpcConfig:
+            endpointPrivateAccess: true
+            endpointPublicAccess: true
+            subnetIdSelector:
+              matchControllerRef: true
     patches:
     - fromFieldPath: metadata.annotations[crossplane.io/external-name]
       toFieldPath: metadata.annotations[crossplane.io/external-name]
+    - fromFieldPath: spec.parameters.version
+      toFieldPath: spec.forProvider.version
     - fromFieldPath: metadata.uid
       toFieldPath: spec.writeConnectionSecretToRef.name
       transforms:
         - type: string
           string:
             fmt: "%s-ekscluster"
+    - type: ToCompositeFieldPath
+      fromFieldPath: metadata.annotations[crossplane.io/external-name]
+      toFieldPath: status.clusterName
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.status
+      toFieldPath: status.controlPlaneStatus
     - fromFieldPath: spec.writeConnectionSecretToRef.namespace
       toFieldPath: spec.writeConnectionSecretToRef.namespace
-    - fromFieldPath: spec.parameters.networkRef.id
-      toFieldPath: spec.forProvider.resourcesVpcConfig.securityGroupIdSelector.matchLabels[devopstoolkitseries.com/network-id]
-    - fromFieldPath: spec.parameters.networkRef.id
-      toFieldPath: spec.forProvider.resourcesVpcConfig.subnetIdSelector.matchLabels[devopstoolkitseries.com/network-id]
+    readinessChecks:
+    - type: MatchString
+      fieldPath: status.atProvider.status
+      matchString: ACTIVE
     connectionDetails:
       - fromConnectionSecretKey: kubeconfig
+  - name: eksnodegroup
+    base:
+      apiVersion: eks.aws.crossplane.io/v1alpha1
+      kind: NodeGroup
+      spec:
+        forProvider:
+          region: us-east-1
+          clusterNameSelector:
+            matchControllerRef: true
+          nodeRoleSelector:
+            matchControllerRef: true
+            matchLabels:
+              role: nodegroup
+          subnetSelector:
+            matchLabels:
+              access: public
+          scalingConfig:
+            minSize: 1
+            maxSize: 10
+            desiredSize: 1
+          instanceTypes:
+            - t3.small
+    patches:
+    - fromFieldPath: spec.parameters.nodeSize
+      toFieldPath: spec.forProvider.instanceTypes[0]
+      transforms:
+        - type: map
+          map:
+            small: t3.small
+            medium: t3.medium
+            large: t3.large
+    - fromFieldPath: spec.parameters.minNodeCount
+      toFieldPath: spec.forProvider.scalingConfig.minSize
+    - fromFieldPath: spec.parameters.minNodeCount
+      toFieldPath: spec.forProvider.scalingConfig.desiredSize
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.status
+      toFieldPath: status.nodePoolStatus
+    readinessChecks:
+    - type: MatchString
+      fieldPath: status.atProvider.status
+      matchString: ACTIVE
   - name: iamrole-controlplane
     base:
       apiVersion: identity.aws.crossplane.io/v1beta1
@@ -61,6 +116,32 @@ spec:
                       "Principal": {
                           "Service": [
                               "eks.amazonaws.com"
+                          ]
+                      },
+                      "Action": [
+                          "sts:AssumeRole"
+                      ]
+                  }
+              ]
+            }
+  - name: iamrole-nodegroup
+    base:
+      apiVersion: identity.aws.crossplane.io/v1beta1
+      kind: IAMRole
+      metadata:
+        labels:
+          role: nodegroup
+      spec:
+        forProvider:
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [
+                  {
+                      "Effect": "Allow",
+                      "Principal": {
+                          "Service": [
+                              "ec2.amazonaws.com"
                           ]
                       },
                       "Action": [
@@ -91,6 +172,39 @@ spec:
             matchControllerRef: true
             matchLabels:
               role: controlplane
+  - name: iamattachment-worker
+    base:
+      apiVersion: identity.aws.crossplane.io/v1beta1
+      kind: IAMRolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+          roleNameSelector:
+            matchControllerRef: true
+            matchLabels:
+              role: nodegroup
+  - name: iamattachment-cni
+    base:
+      apiVersion: identity.aws.crossplane.io/v1beta1
+      kind: IAMRolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+          roleNameSelector:
+            matchControllerRef: true
+            matchLabels:
+              role: nodegroup
+  - name: iamattachment-registry
+    base:
+      apiVersion: identity.aws.crossplane.io/v1beta1
+      kind: IAMRolePolicyAttachment
+      spec:
+        forProvider:
+          policyArn: arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+          roleNameSelector:
+            matchControllerRef: true
+            matchLabels:
+              role: nodegroup
   - name: vpc-nodepool
     base:
       apiVersion: ec2.aws.crossplane.io/v1beta1
@@ -104,25 +218,23 @@ spec:
             value: devops-catalog
           - key: kubernetes.io/cluster/devops-catalog
             value: shared
-# TODO: Confirm that it was created
   - name: sc-nodepool
     base:
       apiVersion: ec2.aws.crossplane.io/v1beta1
       kind: SecurityGroup
       spec:
         forProvider:
+          description: Cluster communication with worker nodes
+          groupName: devops-catalog
           region: us-east-1
           vpcIdSelector:
             matchControllerRef: true
           egress:
-            fromPort: 0
+          - fromPort: 0
             toPort: 0
             ipProtocol: "-1"
             ipRanges:
             - cidrIp: "0.0.0.0/0"
-    patches:
-      - fromFieldPath: spec.id
-        toFieldPath: metadata.labels[devopstoolkitseries.com/network-id]
   - name: subnet-nodepool-1a
     base:
       apiVersion: ec2.aws.crossplane.io/v1beta1
@@ -144,9 +256,6 @@ spec:
               value: devops-catalog
             - key: kubernetes.io/cluster/devops-catalog
               value: shared
-    patches:
-      - fromFieldPath: spec.id
-        toFieldPath: metadata.labels[devopstoolkitseries.com/network-id]
   - name: subnet-nodepool-1b
     base:
       apiVersion: ec2.aws.crossplane.io/v1beta1
@@ -168,9 +277,6 @@ spec:
               value: devops-catalog
             - key: kubernetes.io/cluster/devops-catalog
               value: shared
-    patches:
-      - fromFieldPath: spec.id
-        toFieldPath: metadata.labels[devopstoolkitseries.com/network-id]
   - name: subnet-nodepool-1c
     base:
       apiVersion: ec2.aws.crossplane.io/v1beta1
@@ -192,100 +298,41 @@ spec:
               value: devops-catalog
             - key: kubernetes.io/cluster/devops-catalog
               value: shared
-    patches:
-      - fromFieldPath: spec.id
-        toFieldPath: metadata.labels[devopstoolkitseries.com/network-id]
-
-# resource "aws_eks_node_group" "primary" {
-#   cluster_name    = aws_eks_cluster.primary.name
-#   # version         = var.k8s_version
-#   # release_version = var.release_version
-#   node_group_name = "devops-catalog"
-#   node_role_arn   = aws_iam_role.worker.arn
-#   subnet_ids      = aws_subnet.worker[*].id
-#   instance_types  = [var.machine_type]
-#   scaling_config {
-#     desired_size = var.min_node_count
-#     max_size     = var.max_node_count
-#     min_size     = var.min_node_count
-#   }
-#   depends_on = [
-#     aws_iam_role_policy_attachment.worker,
-#     aws_iam_role_policy_attachment.cni,
-#     aws_iam_role_policy_attachment.registry,
-#   ]
-#   timeouts {
-#     create = "15m"
-#     update = "1h"
-#   }
-# }
-
-# data "aws_availability_zones" "available" {
-#   state = "available"
-# }
-
-# resource "aws_iam_role" "worker" {
-#   name = "devops-catalog-worker"
-#   assume_role_policy = jsonencode({
-#     Statement = [{
-#       Action = "sts:AssumeRole"
-#       Effect = "Allow"
-#       Principal = {
-#         Service = "ec2.amazonaws.com"
-#       }
-#     }]
-#     Version = "2012-10-17"
-#   })
-# }
-
-# resource "aws_iam_role_policy_attachment" "worker" {
-#   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-#   role       = aws_iam_role.worker.name
-# }
-
-# resource "aws_iam_role_policy_attachment" "cni" {
-#   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-#   role       = aws_iam_role.worker.name
-# }
-
-# resource "aws_iam_role_policy_attachment" "registry" {
-#   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-#   role       = aws_iam_role.worker.name
-# }
-
-# resource "aws_internet_gateway" "worker" {
-#   vpc_id = aws_vpc.worker.id
-#   tags = {
-#     Name = "devops-catalog"
-#   }
-# }
-
-# resource "aws_route_table" "worker" {
-#   vpc_id = aws_vpc.worker.id
-#   route {
-#     cidr_block = "0.0.0.0/0"
-#     gateway_id = aws_internet_gateway.worker.id
-#   }
-# }
-
-# resource "aws_route_table_association" "worker" {
-#   count = 3
-#   subnet_id      = aws_subnet.worker[count.index].id
-#   route_table_id = aws_route_table.worker.id
-# }
-
-# resource "null_resource" "kubeconfig" {
-#   provisioner "local-exec" {
-#     command = "KUBECONFIG=$PWD/kubeconfig aws eks update-kubeconfig --name ${var.cluster_name} --region ${var.region}"
-#   }
-#   depends_on = [
-#     aws_eks_cluster.primary,
-#   ]
-# }
-
-# resource "null_resource" "destroy-kubeconfig" {
-#   provisioner "local-exec" {
-#     when    = destroy
-#     command = "rm -f $PWD/kubeconfig"
-#   }
-# }
+  - name: gateway
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: InternetGateway
+      spec:
+        forProvider:
+          region: us-east-1
+          vpcIdSelector:
+            matchControllerRef: true
+  - name: routetable
+    base:
+      apiVersion: ec2.aws.crossplane.io/v1beta1
+      kind: RouteTable
+      spec:
+        forProvider:
+          region: us-east-1
+          vpcIdSelector:
+            matchControllerRef: true
+          routes:
+            - destinationCidrBlock: 0.0.0.0/0
+              gatewayIdSelector:
+                matchControllerRef: true
+          associations:
+            - subnetIdSelector:
+                matchControllerRef: true
+                matchLabels:
+                  zone: us-east-1a
+                  access: public
+            - subnetIdSelector:
+                matchControllerRef: true
+                matchLabels:
+                  zone: us-east-1b
+                  access: public
+            - subnetIdSelector:
+                matchControllerRef: true
+                matchLabels:
+                  zone: us-east-1c
+                  access: public

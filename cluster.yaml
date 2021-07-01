@@ -10,7 +10,7 @@ spec:
   parameters:
     nodeSize: small
     # version: "1.20"
-    # minNodeCount: 2
+    minNodeCount: 2
   writeConnectionSecretToRef:
     namespace: team-a
     name: cluster
