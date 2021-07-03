@@ -6,8 +6,10 @@ metadata:
     cluster-owner: vfarcic
 spec:
   compositionRef:
+    # Possible values cluster-google, cluster-azure, cluster-aws
     name: cluster-google
   parameters:
+    # Possible values small, medium, large
     nodeSize: small
     # version: "1.20"
     # minNodeCount: 2
